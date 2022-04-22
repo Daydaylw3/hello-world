@@ -1,49 +1,114 @@
-assume cs:code
+assume cs:code, ss:stack
 
 data segment
-		dw 123, 12666, 1, 8, 3, 38
-		; 076a:0000 7B 00 7A 31 01 00 08 00 03 00 26 00
-		db 16 dup (0)
+				dw 123, 12666, 1, 8, 3, 38
+				; 076a:0000 7B 00 7A 31 01 00 08 00-03 00 26 00
+				db 15 dup (0)
 data ends
 
+stack segment
+				dw 8 dup (0)
+stack ends
+
 code segment
- start: mov ax, data
- 		mov ds, ax
- 		mov si, 0
- 		call dtoc
+ start: mov ax, stack
+ 				mov ss, ax
+ 				mov sp, 16
+ 				mov ax, data
+ 				mov ds, ax
+ 				mov si, 0
+ 				call dtoc       
+ 				; Ö´ĞĞÍêÕâ¸öÄ£¿éºó
+ 				; 076a:0000 7B 00 7A 31 01 00 08 00-03 00 26 00 00 00 31 32   {.z1......&...12
+ 				; 076a:0010 33 31 32 36 36 36 31 38-33 33 38 00 00 00 00 00   31266618338.....
+ 				; Òò´ËÖ»Òª½«×Ö·û´®µØÖ·Ö¸Ïò 076a:00e0 ÔÙÖ´ĞĞshow_strÄ£¿é¼´¿É
+ 				
+ 				mov si, 0eh
+ 				mov dh, 8
+ 				mov dl, 3
+ 				mov cl, 2
+ 				call show_str
+ 				
+ 				mov ax, 4c00h
+ 				int 21h
+ 				
+ 	dtoc: mov di, 0eh
+ 		s1:	mov cx, [si]
+ 				jcxz ok
+ 				add si, 2
+ 				push di       ; ´æ´¢Ä¿±êµØÖ·ÆğÊ¼Æ«ÒÆµØÖ·, ºóÃæreverseĞèÒªÓÃ
+ 				mov dx, 0
+ 		 		mov ax, cx
+ 		 s: mov bx, 0ah
+ 				call divdb
+ 				add bl, 30h
+ 				mov [di], bl  ; ½«×ª»»¹ıµÄ×Ö·û´æ´¢µ½Ä¿±êµØÖ·
+ 				inc di        ; µİÔöÄ¿±êÆ«ÒÆµØÖ·
+ 				inc dx        ; ¼ÇÂ¼³¤¶È
+ 				mov cx, ax
+ 				jcxz reverse  ; ÉÌÎª0, ÔòËµÃ÷ÒÑ¾­³ı¾¡, Ìø×ª´¦Àí
+ 				jmp short s
+ 				
+; ´¦ÀíÍêÁËÒ»¸öÊı×Ö, µ«ÊÇÊÇµ¹ĞòµÄ, ĞèÒª½«ÆäÅªÕı
+reverse:pop bx        ; ½«ÆğÊ¼µØÖ·ÄÃµ½, ¶ÔÓ¦s1´¦[push di]
+				mov ax, bx    ; ÓÉaxÔİ´æ×¡ÆğÊ¼µØÖ·
+				
+ 				mov cl, dl    ; ½«³¤¶È¸³¸øcx
+ 		 h:	mov dh, [bx]
+ 		 		push dx
+ 		 		inc bx
+ 		 		loop h
+ 		 		
+ 		 		mov bx, ax    ; ÖØĞÂÄ¿±êµØÖ·½«ÆğÊ¼µØÖ·ÄÃµ½
+ 		 		
+ 		 		mov cl, dl
+ 		h1: pop ax
+ 				mov [bx], ah
+ 				inc bx
+ 				loop h1
+ 				jmp short s1
+ 				
+ 		ok:	ret
 
- 		mov ax, 4c00h
- 		int 21h
-
-  dtoc: mov ax, data  ; å£°æ˜ç›®æ ‡åœ°å€
-  		mov es, ax
-  		mov di, 0eh
-
-  	 s: mov bx, 0
-  		mov cx, 0
-  	    mov ax, [si]
-  	s1: mov bl, 10
-  		div bl
-  		; å°†ä½™æ•°=ã€‹bl, å•†=ã€‹cl
-  		; è‹¥cx=0, åˆ™è¯´æ˜å·²é™¤å°½
-  		mov bl, ah
-  		add bl, 30h   ; è½¬æ¢æˆæ•°å­—å­—ç¬¦
-  		inc bh        ; ç”¨bhè®°å½•æ•°å­—é•¿åº¦
-  		mov ah, 0     ; ä½™æ•°å½’0
-  		mov cl, al
-  		mov es:[di], bl
-  		inc di
-  		jcxz s2       ; å¤„ç†ä¸‹ä¸€ä¸ªæ•°
-  		jmp short s1
-
-  		; å¤„ç†å€’åºçš„æ•°å­—
-    s2: mov cl, bh
-
-    	add si, 2
-    	mov cx, [si]
-    	jcxz s3
-    	jmp short s
-
-  	s3:	ret
+ ; ax: ±»³ıÊı, bl: ³ıÊı
+ ; ax: ÉÌ, bl: ÓàÊı
+ divdb: push cx       ; ÒòÎª½ÓÏÂÀ´»áÓÃµ½cx, dx, ËùÒÔÏÈÔİ´æ, Ö®ºó»Ö¸´
+ 				push dx
+ 				push ax       ; Ôİ´æ×¡alµÄÖµ
+ 				mov al, ah
+ 				mov ah, 0
+ 				div bl
+ 				mov cl, al
+ 				pop dx
+ 				mov al, dl
+ 				div bl
+ 				mov bl, ah
+ 				mov ah, cl
+ 				pop dx
+ 				pop cx
+ 				ret
+ 				
+show_str: mov bl, cl        ; ½«ÑÕÉ«ÓÃbl´æ, ²»ÓÃcl´æ
+					mov al, dh        ; ¼ÆËã³ö¸ÃĞĞµÄ»ùµØÖ·
+          mov ah, 0a0h
+          mul ah
+          mov cl, 10h
+          div cl      ; ÕâÀïÊÇÒòÎªÖªµÀÒ»ĞĞÎª16µÄ±¶Êı²ÅÄÜÕâÃ´×ö
+          add ax, 0b800h
+          mov es, ax
+          mov al, dl        ; ¼ÆËã¸ÃÁĞµÄÆ«ÒÆµØÖ·
+          mov ah, 2
+          mul ah
+          mov di, ax
+          mov cx, 0
+    show: mov cl, [si]
+    			jcxz ok1
+          mov es:[di], cl   ; ×Ö·û
+          mov es:[di+1], bl ; ÑÕÉ«
+          inc si
+          add di, 2
+          jmp short show
+          
+     ok1: ret
 code ends
 end start

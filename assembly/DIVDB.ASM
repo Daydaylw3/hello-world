@@ -1,23 +1,36 @@
-assume cs:code
+assume cs:code, ss:stack
+
+stack segment
+				dw 8 dup (0)
+stack ends
 
 code segment
- start: mov ax, 0
- 		mov dx, 317ah
- 		mov bl, 10
- 		mov cx, 256
- 		call divdb
-
- 		mov ax, 4c00h
- 		int 21h
-
- 		; x/n = int(h/n)*256+[rem(h/n)*256+l]/n
- 		; ah/bl*256 + (rem(ah/bl)*256+al)/bl
- divdb: mov ah, dh
- 		div dl
- 		; 余数在ah, 
- 		mov ax, ah
- 		mov ah, 0
- 		mul cx
- 		ret
+ start: mov ax, stack
+ 				mov ss, ax
+ 				mov sp, 16
+ 				
+ 				mov ax, 317ah
+ 				mov bl, 0ah
+ 				call divdb
+ 				
+ 				; ax=04f2, bx=0006
+ 				mov ax, 4c00h
+ 				int 21h
+ 				
+ divdb: push cx
+ 				push dx
+ 				push ax
+ 				mov al, ah
+ 				mov ah, 0
+ 				div bl
+ 				mov cl, al
+ 				pop dx
+ 				mov al, dl
+ 				div bl
+ 				mov bl, ah
+ 				mov ah, cl
+ 				pop dx
+ 				pop cx
+ 				ret
 code ends
 end start
