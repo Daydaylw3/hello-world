@@ -451,7 +451,7 @@ MySQL 只是作为一个软件来为我们来保管这些数据， 提供方便�
 
 但是每当向一个表中插入一条记录时， MySQL 先要校验插入语句所对应的表是否存在， 以及插入的列和表中的列是否符合。如果语法没有问题， 还需要知道该表的聚簇索引和所有二级索引对应的根页面是哪个表空间的哪个页面， 然后把记录插入对应索引的B+ 树中。
 
-所以， MySQL 除了保存着插入的用户数据之外，还需要保存许多额外的信息
+所以，MySQL 除了保存着插入的用户数据之外，还需要保存许多额外的信息
 
 + 某个表属于哪个表空间， 表里面有多少列
 + 表对应的每一个列的类型是什么
@@ -536,7 +536,128 @@ SYS_INDEXES 表只有一个聚簇索引， 即以（TABLE_ID，ID ) 列为主键
 | `POS`      | 该列在索引列中是第几列 |
 | `COL_NAME` | 该列的名称             |
 
-##### （5）
+##### （5）Data Dictionary Header 页面
+
+只要有了上述4 个基本系统表，也就意味着可以获取其他系统表以及用户定义的表的所有元数据。比如，我们想看一下SYS~TABLESPACES 系统表中存储了哪些表空间以及表空间对应的属性，就可以执行下述操作
+
++ 根据表名到SYS一TABLES 表中定位到具体的记录，从而获取到SYS TABLESPACES 表的TABLE_ID
++ 使用获取的 TABLE_ID 到 SYS_COLUMNS 表中就可以获取到属于该袤的所有列的信息
++ 使用获取的 TABLE_ID 还可以到 SYS_INDEXES 表中获取所有的索引的信息。索引的信息中包括对应的INDEX ID，还记录着该索引对应的B+ 树根页面是哪个表空间的哪个页面
++ 使用获取的 INDEX_ID 就可以到SYS FIELDS 表中获取所有索引列的信息
+
+InnoDB 又拿出一个固定的页面来记录这4 个袤的聚簇索引和二级索引对应的B+ 树位置。这个页面就是页号为7 的页面， 类型为SYS， 记录了Data Dictionary Header （数据字典的头部信息）。
+
+除了这4 个表的5 个索引的根页面信息外，这个页号为7 的页面还记录了整个 InnoDB 存储引擎的一些全局属性
+
+![image-20220513194020333](/Users/daydaylw3/Pictures/typora/image-20220513194020333.png)
+
+| 名称                     | 占用空间大小（字节 | 简单描述                                                     |
+| ------------------------ | ------------------ | ------------------------------------------------------------ |
+| `File Header`            | 38                 | 页的一些通用信息                                             |
+| `Data Dictionary Header` | 52                 | 记录一些基本系统表的根页面位置以及 lnnoDB 存储引擎的一些全局信息 |
+| `Unused`                 | 4                  | 未使用                                                       |
+| `Segment Header`         | 10                 | 记录本页面所在段对应的 INODE Entry 位置信息                  |
+| `Empty Space`            | 16272              | 用于页结构的填充，没啥实际意义                               |
+| `File Trailer`           | 8                  | 校验页是否完整                                               |
+
+这个页面中竟然有Se伊entH?der 部分， 这意味着设计InnoDB 的大叔把这些有关数据字典的信息当成一个段来分配空间，我们就姑且叫数据字典段。由于目前要记录的数据字典信息非常少（可以看到 Data Dictionary Header 部分仅占用了 52 字节），所以该段只有一个碎片页，也就是页号为 7 的这个页
+
+**Data Dictionary Header**
+
++ **Max Row ID**：中果不显式地为表定义主键，而且表中也没有不允许存储 NULL 值的 UNIQUE 键，那么 InnoDB 会默认生成一个名为 row_id 的列作为主键。因为它是主键，所以每条记录的 row_id 列的值不能重复。原则上只要一个表中的 row_id 列不重复就好了，不过 InnoDB 只提供了这个 Max Row ID 字段，无论哪个拥有 row_id 列的表插入一条记录，该记录的 row_id 列的值就是 Max Row ID 对应的值，然后再把 Max Row ID 对应的值加 1.也就是说 Max Row ID 是全局共享的
+
+  > 并不是每分配一个 row_id 值都会将 Max Row ID 列刷新到磁盘一次
+
++ **Max Table ID**：在InnoDB 存储号|擎中，所有的表都对应一个唯一的ID，每次新建一个表时， 就会把本字段的值的值加 1，然后将其作为该表的 ID
+
++ **Max Index ID**：在InnoDB 存储号|擎中，所有的索引都对应一个唯一的ID，每次新建一个索引时， 就会把本字段的值的值加 1，然后将其作为该索引的 ID
+
++ **Max Space ID**：在InnoDB 存储号|擎中，所有的表空间都对应一个唯一的ID，每次新建一个表空间时， 就会把本字段的值的值加 1，然后将其作为该表空间的 ID
+
++ **Mix ID Low(Unused)**：这字段没啥用
+
++ **Root of SYS_TABLES clust index**：表示 SYS_TABLES 表聚簇索引的根页面的页号
+
++ **Root of SYS_TABLE_IDS sec index**：表示SYS_TABLE_IDS 表为 ID 列建立的二级索引的根页面的页号
+
++ **Root of SYS_COLUMNS clust index**：表示SYS_COLUMNS 表聚簇索引的根页面的页号
+
++ **Root of SYS_INDEXES clust index**：表示SYS_INDEXES 表聚簇索引的根页面的页号
+
++ **Root of SYS_FIELDS clust index**：表示 SYS_FIELDS 表聚簇索引的根页面的页号
+
+##### （6）information_schema 系统数据库
+
+用户不直接访问InnoDB 的这些内部系统衰， 除非直接去解析系统表空间对应的文件系统上的文件。
+
+不过 InnoDB 考虑到，查看这写表的内容可能有助于分析问题，所以在系统数据库 information_schema 中提供了一些以 `INNODB_SYS` 开头的表（MySQL 8 是 `INNODB` 开头）
+
+```mysql
+mysql> show tables like 'INNODB_%';
++-----------------------------------------+
+| Tables_in_information_schema (INNODB_%) |
++-----------------------------------------+
+| INNODB_BUFFER_PAGE                      |
+| INNODB_BUFFER_PAGE_LRU                  |
+| INNODB_BUFFER_POOL_STATS                |
+| INNODB_CACHED_INDEXES                   |
+| INNODB_CMP                              |
+| INNODB_CMP_PER_INDEX                    |
+| INNODB_CMP_PER_INDEX_RESET              |
+| INNODB_CMP_RESET                        |
+| INNODB_CMPMEM                           |
+| INNODB_CMPMEM_RESET                     |
+| INNODB_COLUMNS                          |
+| INNODB_DATAFILES                        |
+| INNODB_FIELDS                           |
+| INNODB_FOREIGN                          |
+| INNODB_FOREIGN_COLS                     |
+| INNODB_FT_BEING_DELETED                 |
+| INNODB_FT_CONFIG                        |
+| INNODB_FT_DEFAULT_STOPWORD              |
+| INNODB_FT_DELETED                       |
+| INNODB_FT_INDEX_CACHE                   |
+| INNODB_FT_INDEX_TABLE                   |
+| INNODB_INDEXES                          |
+| INNODB_METRICS                          |
+| INNODB_SESSION_TEMP_TABLESPACES         |
+| INNODB_TABLES                           |
+| INNODB_TABLESPACES                      |
+| INNODB_TABLESPACES_BRIEF                |
+| INNODB_TABLESTATS                       |
+| INNODB_TEMP_TABLE_INFO                  |
+| INNODB_TRX                              |
+| INNODB_VIRTUAL                          |
++-----------------------------------------+
+31 rows in set (0.01 sec)
+```
+
+> 在information schema 数据库中， 这些以 INNODB_SYS 开头的表并不是真正的内部系统表，而是在存储引擎启动时读取系统表，然后填充到这些以 INNODB_SYS 开头的表中；这些表的字段和系统表不完全一样
+
+## 9.4 总结
+
++ InnoDB 出于不同的目的而设计了不同类型的页面，这些不同类型的页面基本都有 `File Header` 和 `File Trailer` 的通用结构
++ 表空间被划分为许多连续的区，对于大小为 16KB 的页面来说，每个区默认由 64 个页组成（1MB），每 256 个区划分为一组（256MB），每个组最开始的几个页面类型是固定的
++ 段是一个逻辑上的概念，是某些零散的页面以及一些完整的区的集合
++ 每个区都对应一个 XDES Entry 结构，这个结构中存储了一些与这个区有关的属性。这些区可以被划分为几种类型
+  + 空闲的区：会被加入到 FREE 链表
+  + 有空闲页面的碎片区：会被加入到 FREE_FRAG 链表
+  + 没有剩余页面的碎片区：会被加入到 FULL_FRAG 链表
+  + 附属于某个段的区：每个段所属的区又会被组织成下面几种链表
+    + FREE 链表：在同一个段中，所有页面都是空闲页面的区对应的 XDES Entry 结构会被加入到这个链表。
+    + NOT_FULL 链表：在同一个段中，仍有空闲页面的区对应的 XDES Entry 结构会被加入到这个链表
+    + FULL 链表：在同一个段中，已经没有空闲页面的区对应的 XDES Entry 结构会被加入到这个链表。
++ 每个段都会对应一个 INODE Entry 结构，该结构中存储了一些与这个段有关的属性
++ 表空间中第一个页面的类型为 FSP_HDR，它存储了表空间的一些整体属性以及第一个组内 256 个区对应的 XDES Entry 结构。
++ 除了表空间的第一个组以外，其余组的第一个页面的类型为 XDES ，这种页面的结构和 FSP_HDR 类型的页面对比，除了少了File Space Header 部分之外，其余部分是一样的
++ 每个组的第二个页面的类型为 IBUF BITMAP ，存储了一些关于Change Buffer 的信息
++ 表空间中第一个分组的第三个页面的类型是 INODE ，它是为了存储 INODE Entry 结构而设计的，这种类型的页面会组织成下面两个链表
+  + SEG_INODES_FULL 链表：在该链表中，INODE 类型的页面中己经没有空闲空间来存储额外的 INODE Entry 结构
+  + SEG_INODES_FREE 链表：在该链表中，INODE 类型的页面中还有空闲空间来存储额外的 INODE Entry 结构
++ Segment Header 结构占用10 字节，是为了定位到具体的 INODE Entry 结构而设计的
++ 系统表空在表空间开头有许多记录整个系统属性的页面
++ InnoDB 提供了一系列系统表来描述元数据，其中 SYS_TABLES、SYS_COLUMNS、SYS_INDEXES、SYS_FIELDS 这 4 个表尤其重要，称为基本系统表（basic system table）。
++ 系统表空间的第7 个页面记录了数据字典的头部信息
 
 ------
 
