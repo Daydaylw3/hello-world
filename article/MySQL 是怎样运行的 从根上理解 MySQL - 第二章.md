@@ -1,5 +1,7 @@
 **目录**
 
+------
+
 [toc]
 
 ------
@@ -19,7 +21,7 @@
 
 想在启动服务器程序时就禁止各客户端使用 `TCP/IP` 网络进行通信
 
-```
+```shell
 mysqld --skip-networking
 mysqld --skip_networking
 ```
@@ -28,13 +30,13 @@ mysqld --skip_networking
 
 想改变表的默认存储引擎
 
-```
+```shell
 mysqld --default-storage-engine=MyISAM
 ```
 
 总结一下， 在启动服务器程序的命令行后边指定启动选项的通用格式
 
-```
+```shell
 --启动造项1[=值1] --启动选项2[=值2] ... --启动选项n[=值n]
 ```
 
@@ -43,7 +45,7 @@ mysqld --default-storage-engine=MyISAM
 
 查看 `mysqld` 支持的启动选项有些特别
 
-```
+```shell
 mysqld --verbose --help
 ```
 
@@ -93,7 +95,7 @@ mysqld --verbose --help
 
 + 第四个我们在命令行中可以这么写
 
-  ```
+  ```shell
   mysqld --defaults-extra-file=C:\Users\dayday\my_extra_file.txt
   ```
 
@@ -212,7 +214,7 @@ default-storage-engine=MyISAM
 
 如果我们不想让 MySQL 在默认的路径下搜索配置文件，则可以在命令行指定 `defaults-file` 选项，比如下面这样（以类UNIX 系统为例）
 
-```
+```shell
 mysqld --defaults-file=/tmp/myconfig.txt
 ```
 
@@ -269,10 +271,107 @@ SHOW VARIABLES [LIKE 匹配的模式];
 + **全局范围（GLOBAL）**：影响服务器的整体操作
 + **会话范围（SESSION）**：影响某个客户端连接的操作
 
-服务器在启动时，会将每个全局变量初始化为其默认值；服务器还为每个连接的客户端维护一组会话变量， 客户端的会话变量在连接时使用相应全局变量的当前值进行初始化。
+服务器在启动时，会将每个全局变量初始化为其默认值；服务器还为每个连接的客户端维护一组会话变量，客户端的会话变量在连接时使用相应全局变量的当前值进行初始化。
+
+在服务器程序运行期间通过客户端程序设置系统变量的语法：
+
+```mysql
+SET [GLOBAL|SESSION] 系统变量名 = 值;
+```
+
+或者
+
+```mysql
+SET [@@(GLOBAL|SESSION).]系统变量名 = 值;
+```
+
+**比如**
+
+> 想让之后新连接到服务器的客户端都用 `MyISAM` 作为默认的存储引擎
+
+```mysql
+SET GLOBAL default_storage_engine = MyISAM;
+SET @@GLOBAL.default_storage_engine = MyISAM;
+```
+
+> 如果只想对本客户端生效
+
+```mysql
+SET SESSION default_storage_engine = MyISAM;
+SET @@SESSION.default_storage_engine = MyISAM;
+SET default_storage_engine = MyISAM;
+```
+
+> 如果在设置系统变量的语句中省略了作用范围，**默认的作用范围就是 `SESSION`**
 
 ##### （2）查看不同作用范围的系统变量
 
+可以在查看系统变量的语句中加上要查看哪个作用范围的系统变量的修饰符
+
+```mysql
+SHOW [GLOBAL|SESSION] VARIABLES [LIKE 匹配的模式];
+```
+
+**查看规则**
+
++ 如果使用 `GLOBAL` 修饰符，则显示全局系统变量的值，如果某个系统变作用范围，则不显示
++ 如果使用 `SESSION` 修饰符，则显示针对当前连接有效的系统变量值；如果某个系统变没有 `SESSION` 作用范围，则显示 `GLOBAL` 作用范围的值
++ 如果没写修饰符，则与使用 `SESSION` 修饰符效果一样
+
+> **小贴士**：如呆某个客户端改变了某个系统变量在 `GLOBAL` 作用范围的值， 并不会影响该系统变量在当前已经连接的客户端作用范围为 `SESSION` 的值，只会影响后续追入的客户端作用范围为 `SESSION` 的值
+
 ##### （3）注意事项
 
++ 并不是所有的系统变量都具有 `GLOBAL` 和 `SESSION` 的作用范围
+  + 有一些系统变量只具有 `GLOBAL` 作用范围，比如 `max_connections`
+  + 有一些系统变量只具有 `SESSION` 作用范围，比如 `insert_id`（表示在对某个包含 `AUTO_INCREMENT` 列的表进行插入时，该列初始的值）
++ 有些系统变量是只读的，并不能设置值，比如 `version`（表示当前 MySQL 的版本）
+
 #### 2.2.3.3 启动选项和系统变量的区别
+
+> 启动选项是在程序启动时由用户传递的一些参数，而系统变量是影响服务器程序运行行为的变量
+
++ 大部分的系统变量都可以当作启动选项传入
++ 有些系统变量是在程序运行过程中自动生成的，不可以当作启动选项来设置，比如 `character_set_client`
++ 有些启动选项也不是系统变量，比如 `defaults-file`
+
+## 2.3 状态变量
+
+> 关于程序运行状态的变量；为了让我们更好地了解服务器程序的运行情况
+
++ 值只能由服务器程序自己来设置，不能人为设置
++ 状态变量也有 `GLOBAL` 和 `SESSION` 两个作用范围
+
+**查看**
+
+```mysql
+SHOW [GLOBAL|SESSION] STATUS [LIKE 匹配的模式];
+```
+
+> 类似地，如果不写修饰符，则与使用 SESSION 修饰符效果一样
+
+## 2.4 总结
+
++ 启动选项
+
+  + 作用
+
+  + 命令行中指定
+
+    + 格式
+    + 长短形式
+
+  + 配置文件指定
+
+    + 文件路径
+    + 格式
++ 系统变量
+  + 修改方式
+  + 查看方式
++ 状态变量
+
+  + 查看方式
+
+------
+
+[toc]
