@@ -104,6 +104,71 @@ explain select * from s1 where key1 in (select key3 from s2 where common_field =
 
 system、const、eq_ref、ref、
 
+### 15.1.7 key_len
+
+从执行计划中直接可以看出形成扫描区间的边界条件是什么。
+
+key_len 的值由 3 部分组成
+
++ **该列的实际数据最多占用的存储空间长度**。对于固定长度类型的列来说，比方说对于 INT 类型的列来说，该历史记数据最多占用的存储空间长度就是 4 字节。对于变长类型的列来说，对于变长的来说，比方说对于使用 utf8 字符集，类型为 VARCHAR(100) 来说，该列的实际数据最多占用的存储空间长度就是在 utf8 字符集中表示一个字符最多占用的字节数，乘以该类型最多可以存储的字符数的积。也就是 3 × 100 = 300 字节
++ 如果该列**可以存储 NULL 值**，则 key_len 值在该列的实际数据最多占用的存储空间长度的基础上，再加 1 字节
++ 对于使用变长类型的列来说，都会有 2 字节的空间来存储该变列的**实际数据占用的存储空间长度**，key_len 值还要在原先的基础上加 2 字节。
+
+```mysql
+explain select * from s1 where key_part1 = 'a' and key_part3 = 'a';
+```
+
+```mysql
+explain select * from s1 where key_part1 = 'a' and key_part2 > 'b';
+```
+
+### 15.1.8 ref
+
+展示的是与索引列进行等值匹配的东西是什么？比如只是一个常数或者是某个列，有时是个函数 func
+
+### 15.1.9 rows
+
+在查询优化器。决定使用全表扫描对某个表进行查询时，执行计划的 row 列就代表该表的估计行数。
+
+如果使用索引来执行扫描，就代表预计扫描的索引记录行数
+
+### 15.1.10 filtered
+
+条件过滤（condition filtering）的概念
+
++ 如果使用全表扫描的方式来执行单表查询。那么计算驱动表扇出时，需要估计出满足全部搜索条件的记录到底有多少条？
++ 如果使用索引来执行单表扫描，那么计算驱动表扇出时需要估计出在满足形成索引扫描区间的搜索条件外，还满足其他搜索条件的记录有多少条？
+
+```mysql
+explain select * from s1 where key1 > 'z' and common_field = 'a';
+```
+
+rows 的值是 266，说明预测有 266 条记录满足 key1 > 'z' 的条件，filtered 的值是 10.00，表示预测出 266 条记录中，10%的满足 common_field = 'a' 的条件
+
+对于单表查询来说，这个列的值没有什么意义，我们更关注在连接查询中驱动表对应的执行计划的 filtered 值。
+
+```mysql
+explain select * from s1 inner join s2 on s1.key1 = s2.key1 where s1.common_field = 'a';
+```
+
+### 15.1.11 Extra
+
++ No tables used：没有 From 子句
+
++ Impossible WHERE：where子句永远为 false
+
++ No matching min/max row：
+
++ Using index：使用覆盖索引执行查询
+
++ Using index condition：有些搜索条件虽然出现了索引列，但是却不能充当边界条件来形成扫描区间
+
+  ```mysql
+  explain select * from s1 where key1 > 'z' and key1 like '%a';
+  ```
+
++ 
+
 ------
 
 [toc]
