@@ -167,7 +167,45 @@ explain select * from s1 inner join s2 on s1.key1 = s2.key1 where s1.common_fiel
   explain select * from s1 where key1 > 'z' and key1 like '%a';
   ```
 
-+ 
+  这里有个前后版本的索引下推（Index Condition Pushdown）的优化行为（自行复习查看）
+
++ Using where：当某个搜索条件需要在 server 层进行判断（8太好
+
++ Using join buffer（Block Nested Loop）：被驱动表不能有效地利用索引加快访问速度，分配一块缓冲区
+
++ Using intersect(...)、Using union(...)、Using sort_union(...)：
+
++ Zero limit：
+
++ Using filesort：排序无法使用索引，需要在内存中或者磁盘中排序
+
++ Using  temporary：建立临时表（不太好
+
++ Start temporary，End temporary：子查询将 in 子查询转换为半连接。建立临时表为外层查询中的记录去重
+
++ LooseScan：in 子查询转换为半连接
+
++ FirstMatch(tbl_name)：
+
+## 15.2 JSON 格式的执行计划
+
+`FORMAT=JSON`
+
+prefix_cost：
+
+eval_cost：
+
+read_cost：
+
+## 15.3 Extented EXPLAIN
+
+```
+SHOW WARNINGS
+```
+
+## 15.4 总结
+
+
 
 ------
 
