@@ -48,7 +48,55 @@ COMMIT [WORK];
 
 ### 18.3.3 手动中止事务
 
+ROLLBACK [WORK];
 
+### 18.3.4 支持事务的存储引擎
+
+InnoDB 和 NDB
+
+### 18.3.5 自动提交
+
+系统变量 autocommit
+
+想关闭自动提交
+
++ 显式地使用 START TRANSACTION 或者 BEGIN 语句开启一个事务
+
+  会暂时关闭自动提交
+
++ SET autocommit = OFF;
+
+### 18.3.6 隐式提交
+
+某些语句会导致事务悄悄地提交掉
+
++ 定义或者修改数据库对象的数据定义语言（DDL，Data Definition Language）
+
++ 隐式使用或者修改 mysql 数据库中的表
+
++ 事务控制 或者 关于锁定的语句 LOCK TABLES、UNLOCK TABLES
+
++ 加载数据的语句 LOAD DATA
+
++ 关于 MySQL 复制的一些语句
+
+  START SLAVE、STOP SLAVE、RESET SLAVE、CHANGE MASTER TO
+
++ 其他语句
+
+  ANALYZE TABLE、CACHE INDEX、CHECK TABLE、FLUSH、LOAD INDEX INTO CACHE、OPTIMIZE TABLE、REPAIR TABLE、RESET 等
+
+### 18.3.7 保存点
+
+（savepoint）
+
+ROLLBACK 可以指定回到哪个点
+
+SAVEPOINT 保存点名称;
+
+ROLLBACK [WORK] TO [SAVEPOINT] 保存点名称;
+
+RELEASE SAVEPOINT 保存点名称;
 
 ------
 
