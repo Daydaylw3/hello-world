@@ -43,7 +43,7 @@ MLOG_WRITE_STRING
 + 表中包含多少个索引，一条 INSERT 语句就可能更新多少裸B+ 树.
 + 针对某一棵 B+ 树来说，既可能更新叶子节点页面，也可能更新内节点页面， 还可能创建新的页面
 
-+ MLOG_REC_INSERT（9）：表示在插入一条使用非紧凑行格式( REDUNDANT)的记录
++ MLOG_REC_INSERT（9）：表示在插入一条使用非紧凑行格式（REDUNDANT）的记录
 + MLOG_CMP_REC_INSERT（38）：表示在插入一条使用紧凑行格式( COMPACT、DYNAMIC、COMPRESSED ) 的记录
 + MLOG_COMP_PAGE_CREATE（58）：表示在创建一个存储紧凑行格式记录的页面
 + MLOG_COMP_REC_DELETE（42）：表示在删除一条使用紧凑行格式记录
@@ -137,7 +137,24 @@ redo 日志文件
 
 > 循环写是从 2048 字节开始写
 
+**前 2048 个字节**
 
+![image-20220522163432014](/Users/daydaylw3/Pictures/typora/image-20220522163432014.png)
+
++ LOG_HEADER_START_LSN：2048 字节处对应的 lsn 值
++ LOG_HEADER_CREATOR：创建者，正常为 MySQL版本号，SQL 5.7.22，mysqlbackup 命令创建时是 ibbackup + 创建时间
+
+![image-20220522163737457](/Users/daydaylw3/Pictures/typora/image-20220522163737457.png)
+
++ LOG_CHECKPOINT_NO：每执行一次checkpoint，就+1
++ LOG_CHECKPOINT_LSN：服务器再结束 checkpoint 时对应的 lsn 值；系统在崩溃会恢复时将从该值开始
++ LOG_CHECKPOINT_OFFSET：上个属性中的 lsn 值在 redo 日志文件组中的偏移量
+
+> 革统中 checkpoint 的相关信息其实只存储在redo 日志文件组的第一个日志文件中
+
+## 19.7 log sequence number
+
+lsn（log sequence number）记录总共已写入的 redo 日志量，初始 8704
 
 ------
 
