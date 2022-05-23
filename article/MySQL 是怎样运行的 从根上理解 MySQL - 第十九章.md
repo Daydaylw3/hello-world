@@ -43,7 +43,7 @@ MLOG_WRITE_STRING
 + 表中包含多少个索引，一条 INSERT 语句就可能更新多少裸B+ 树.
 + 针对某一棵 B+ 树来说，既可能更新叶子节点页面，也可能更新内节点页面， 还可能创建新的页面
 
-+ MLOG_REC_INSERT（9）：表示在插入一条使用非紧凑行格式( REDUNDANT)的记录
++ MLOG_REC_INSERT（9）：表示在插入一条使用非紧凑行格式（REDUNDANT）的记录
 + MLOG_CMP_REC_INSERT（38）：表示在插入一条使用紧凑行格式( COMPACT、DYNAMIC、COMPRESSED ) 的记录
 + MLOG_COMP_PAGE_CREATE（58）：表示在创建一个存储紧凑行格式记录的页面
 + MLOG_COMP_REC_DELETE（42）：表示在删除一条使用紧凑行格式记录
@@ -137,7 +137,150 @@ redo 日志文件
 
 > 循环写是从 2048 字节开始写
 
+**前 2048 个字节**
 
+![image-20220522163432014](/Users/daydaylw3/Pictures/typora/image-20220522163432014.png)
+
++ LOG_HEADER_START_LSN：2048 字节处对应的 lsn 值
++ LOG_HEADER_CREATOR：创建者，正常为 MySQL版本号，SQL 5.7.22，mysqlbackup 命令创建时是 ibbackup + 创建时间
+
+![image-20220522163737457](/Users/daydaylw3/Pictures/typora/image-20220522163737457.png)
+
++ LOG_CHECKPOINT_NO：每执行一次checkpoint，就+1
++ LOG_CHECKPOINT_LSN：服务器再结束 checkpoint 时对应的 lsn 值；系统在崩溃会恢复时将从该值开始
++ LOG_CHECKPOINT_OFFSET：上个属性中的 lsn 值在 redo 日志文件组中的偏移量
+
+> 革统中 checkpoint 的相关信息其实只存储在redo 日志文件组的第一个日志文件中
+
+## 19.7 log sequence number
+
+lsn（log sequence number）记录总共已写入的 redo 日志量，初始 8704
+
+统计 lsn 增长量时，是按照实际写入的日志量 + log block header 和 log block trailer 来计算的
+
+> 每一组由 MTR 生成的redo 日志都有一个唯一的 lsn 值与其对应；Isn 值越小，说明redo 日志产生得越早
+
+### 19.7.1 flushed_to_disk_lsn
+
+buf_next_to_write 全局变量：用来标记当前 log buffer 中已经有哪些日志被刷新到磁盘中
+
+flushed_to_disk_lsn 全局变量：表示刷新到磁盘中的 redo 日志量，和 lsn 对应
+
+![image-20220523145646351](/Users/daydaylw3/Pictures/typora/image-20220523145646351.png)
+
+![image-20220523145658306](/Users/daydaylw3/Pictures/typora/image-20220523145658306.png)
+
+### 19.7.2 lsn 值和 redo 日志文件组中的偏移量的对应关系
+
+很容易计算某一个 lsn 值在 redo 日志文件组中的偏移量
+
+<img src="/Users/daydaylw3/Pictures/typora/image-20220523150044312.png" alt="image-20220523150044312" style="zoom:67%;" />
+
+### 19.7.3 flush 链表中的 lsn
+
+一个MTR 代表对底层页面的一次原子访问，在访问过程中可能会产生一组不可分割的redo 日志；在MTR 结束时，会把这一组redo 日志写入到 log buffer 中
+
+在MTR 结束时还要把在MTR 执行过程中修改过的页面加入到 Buffer Pool 的 flush 链表中
+
+当第一次修改某个已经加载到 Buffer Pool 中的页面时， 就会把这个页面对应的控制块插入到 flush 链表的头部；再次修改，不再次插入；
+
+>  flush 链表中的脏页是按照页面首次修改时间进行排序的
+
++ oldest_modification：第一次修改，将修改该页面的 MTR 开始时的 lsn 写入
++ newest_modification：每一次修改，将修改页面结束的 MTR 对应的 lsn 写入
+
+## 19.8 checkpoint
+
+循环使用 redo 日志组文件
+
+判断某些redo 日志占用的磁盘空间是否可以覆盖的依据，就是它对应的脏页是否已经被刷新到了磁盘中
+
+![image-20220523155131132](/Users/daydaylw3/Pictures/typora/image-20220523155131132.png)
+
+虽然mtr_1 和mtr_2 生成的redo 日志都已经写到了磁盘中， 但是它们修改的脏页仍然留在Butfer Pool 中，所以它们生成的r附日志在磁盘中的空间是不可以被覆盖的。之后随着系统的运行，如果页a 被刷新到了磁盘，那么页a 对应的控制块就会从flush 链表中移除，这样mtr_1 生成的 redo 日志就没有用了，这些redo 日志占用的磁盘空间就可以被覆盖掉
+
+checkpoint_lsn 全局变量：表示当前系统中可以被覆盖的redo 日志总量，初始8704
+
+执行一次 checkpoint：页被刷新到磁盘上，对应的 mtr 生成的 redo 日志就可以被覆盖了，进行一个增加 checkpoint_lsn 的操作
+
+> 脏页刷盘和执行一次checkpoint是两回事。
+
+checkpoint 步骤
+
+1. 计算当前系统中可以被覆盖章的redo 日志对应的 Isn 值最大是多少：当前系统中最早修改的脏页（flush 链表尾节点）对应的 oldest_modification 值
+2. 将 checkpoint_lsn 与对应的 redo 日志文件组偏移量以及此次 checkpoint 的编号写到日志文件的管理信息（cp1，cp2）
+
+checkpoint_no 变量：统计系统执行了多少次 checkpoint
+
+当 checkpoint_no 是奇数 --> checkpoint 信息写到 checkpoint1，
+
+是偶数 --> 写到 checkpoint2
+
+> 记录完checkpoint 的信息之后. redo 日志文件组中各个Isn 值的关系如图
+
+![image-20220523162929348](/Users/daydaylw3/Pictures/typora/image-20220523162929348.png)
+
+## 19.9 用户线程批量从 flush 链表中刷出脏页
+
+## 19.10 查看系统中的各种 lsn 值
+
+```
+SHOW ENGINE INNODB STATUS\G;
+...
+LOG
+---
+Log sequence number          83216130
+Log buffer assigned up to    83216130
+Log buffer completed up to   83216130
+Log written up to            83216130
+Log flushed up to            83216130
+Added dirty pages up to      83216130
+Pages flushed up to          83216130
+Last checkpoint at           83216130
+246 log i/o's done, 0.00 log i/o's/second
+---
+```
+
++ Pages flushed up to 表示fiush 链表中被最早修改的那个页面对应的 oldest_modification 属性值
++ Last checkpoint at：checkpoint_lsn
+
+## 19.11 innodb_flush_log_at_trx_commit
+
++ 0：表示在事务提交时不立即向磁盘同步redo 日志，这个任务交给后台线程来处理。服务器挂了事务可能丢失
++ 1：表示在事务提交时需要将redo 日志同步到磁盘； 默认值
++ 2：表示在事务提交时需要将redo 日志写到操作系统的缓冲区中，但并不需要保证将日志真正地刷新到磁盘。操作系统不挂就行
+
+## 19.12 崩溃恢复
+
+### 19.12.1 确定恢复的起点
+
+从 checkpoint_lsn 开始，从日志文件组中第一个文件的管理信息中，checkpoint1 和 checkpoint2 比对大小，大的说明是最近一次
+
+### 19.12.2 确定恢复的终点
+
+扫描 redo 日志文件中的block，直到某个block 的 LOG_BLOCK_HDR_DATA_LEN 值不等于 512 为止（block 没满）
+
+block被填满 --> LOG_BLOCK_HDR_DATA_LEN = 512
+
+### 19.12.3 恢复
+
+加快恢复过程
+
++ 使用哈希表（space ID 和 page number 做哈希值），避免很多页面读取的随机 I/O
+
++ 跳过己经刷新到磁盘中的页面
+
+  页面 FIL_PAGE_LSN > checkpoint_lsn 就跳过
+
+## 19.13 LOG_BLOCK_HDR_NO 计算
+
+```
+((lsn / 512) & 0x3FFFFFFF) + 1
+```
+
+最大 1G
+
+LOG_BLOCK_HDR_NO 值的第一个比特比较特殊，称为flush hit. 如果该值为1，代表本b10ck 是在将10g buffer 中的 block 刷新到磁盘的某次操作中时，第一个被刷入的 block
 
 ------
 
