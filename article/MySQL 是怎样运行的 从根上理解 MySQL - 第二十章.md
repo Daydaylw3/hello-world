@@ -161,7 +161,228 @@ TRX_UNDO_PAGE_NODE：链表节点
 
 ### 20.6.1 单个事务中的 Undo 页面链表
 
+因为一个事务可能包含多个捂句， 而且一个语句可能会对若干条记录进行改动，而对每条记录进行改动前（再强调一下， 这里指的是聚簇索引记录）都需要记录 1 条或 2 条 undo 日志。所以在一个事务执行过程中可能产生很多 undo 日志。
 
+这些日志可能在一个页面中放不下， 需要放到多个页面中。
+
+TRX_UNDO_PAGE_NODE 属性连成链表
+
+链表中的第一个Undo 页面 first undo page，包含其他的一些管理信息；其余的 normal undo page。
+
+一个事务可能需要 2 个 undo 页面链表：insert undo，update undo
+
+>  对普通表和临时表的记录改动时所产生的 undo 日志要分别记录
+
+在一个事务中最多有4 个 undo 链表
+
+**具体分配策略**：按需分配， 啥时候需要啥时候分配， 不需要就不分配。
+
+### 20.6.2 多个事务中的 Undo 页面链表
+
+不同事务执行过程中产生的 undo 日志需要写入不同的 Undo 页面链表中
+
+### 20.7 undo 日志具体写入过程
+
+### 20.7.1 段的概念
+
+第九章
+
+### 20.7.2 Undo Log Segment Header
+
+每个 undo 页面链表都对应一个段，Undo Log Segment
+
+first undo page -> Undo Log Segment Header 部分
+
+![image-20220524110158754](/Users/daydaylw3/Pictures/typora/image-20220524110158754.png)
+
+Undo Log Segment Header
+
+![image-20220524110303306](/Users/daydaylw3/Pictures/typora/image-20220524110303306.png)
+
+TRX_UNDO_STATE：链表处于的状态：
+
+TRX_UNDO_ACTIVE：活跃，一个活跃的事务在写入
+
+TRX_UNDO_CACHED：被缓存，等待之后被其他事务重用
+
+TRX_UNDO_TO_FREE：在他对应的事务被提交后，该链表不能被重用处于的状态，等待被释放
+
+TRX_UNDO_TO_PURGE：对于 update undo 链表来说，在他对应的事务被提交之后，该链表不能被重用处于的状态
+
+TRX_UNDO_PREPARED：用户存储处于 PREPARE 阶段的事务产生的日志
+
+> 事务的 PREPARE 状态在分布式事务会出现
+
+TRX_UNDO_FSEG_HEADER：段的 Segment Header 信息
+
+TRX_UNDO_PAGE_LIST：是 TRX_UNDO_PAGE_NODE 形成的链表的基节点
+
+### 20.7.3 Undo Log Header
+
+写完一条紧接着写另一条，各条undo 日志是亲密无间的。写完一个 Undo 页面后，再从段中申请一个新页面，然后把这个页面插入到Undo 页面链表中，继续写
+
+同一个事务向一个 Undo 页面链表中写入的undo 日志算是一个组。每写一组都会在日志前记录一些关于组的属性，存储属性的地方（Undo Log Header）
+
+> Undo 页丽链表的第一个页面在真正写入undo 日志前， 其实都会被填充 Undo Page Header、Undo Log Segment Header、Undo Log Header 这 3 个部分
+
+![image-20220524144352147](/Users/daydaylw3/Pictures/typora/image-20220524144352147.png)
+
+| 属性                  | 解释                                                         |
+| --------------------- | ------------------------------------------------------------ |
+| TRX_UNDO_TRX_ID       | 本组undo 日志的事务id                                        |
+| TRX_UNDO_TRX_NO       | 事务提交后生成的一个序号，此序号用来标记事务的提交顺序       |
+| TRX_UNDO_DEL_MARKS    | 标记本组undo 日志中是否包含由delete mark 操作产生的 undo 日志 |
+| TRX_UNDO_LOG_START    | 表示本组undo 日志中第一条undo 日志在页面中的偏移量.          |
+| TRX_UNDO_XID_EXISTS   | 本组undo 曰志是否包含XID 信息                                |
+| TRX_UNDO_DICT_TRANS   | 标记本组undo 日志是不是由DDL 语句产生的                      |
+| TRX_UNDO_TABLE_ID     | 如果 TRX_UNDO_DICT_TRANS 为真，表示 DDL 语句操作的表的 table id |
+| TRX_UNDO_NEXT_LOG     | 下一组undo 日志在页面中开始的偏移量                          |
+| TRX_UNDO_PREV_LOG     | 上一组undo 日志在页面中开始的偏移量.                         |
+| TRX_UNDO_HISTORY_NODE | 一个 History 链表的节点                                      |
+
+> undo 链表可能会重用，因此 TRX_UNDO_NEXT_LOG、TRX_UNDO_PREV_LOG 是有用的
+
+### 20.7.4 小结
+
+![image-20220524144931921](/Users/daydaylw3/Pictures/typora/image-20220524144931921.png)
+
+## 20.8 重用 Undo 页面
+
+一个Undo 页面链表被重用， 那么它需要符合下面两个条件
+
++ 该链表中只包含一个Undo 页面
++ 该 Undo 页面已经使用的空间小于整个页面空间的 3/4
+
+insert undo 和 update undo 被重用的策略
+
++ insert undo
+
+  这种类型的 undo 日志在事务提交之后就没用了，可以被消除掉。直接把之前事务写入的一组undo 日志覆盖掉， 从头开始写入新事务的一组 undo 日志
+
++ update undo
+
+  不能立即删除掉（MVCC）追加
+
+## 20.9 回滚段
+
+### 20.9.1 回滚段的概念
+
+系统在同一时刻其实可以存在许多个Undo 页面链表
+
+更好的管理这些链表，Rollback Segment Header 页面，存放各个 Undo 页面链表的 first undo page 的页号（undo slot）
+
+> 链表相当于一个班，first undo page 相当于班长，Rollback Segment Header 相当于会议室，召集各个班的班长
+
+![image-20220524161103731](/Users/daydaylw3/Pictures/typora/image-20220524161103731.png)
+
+每一个 Rollback Segrocnt Header 页面都对应着一个段，这个段就称为回滚段 ( Rollback Segroent) 
+
+回滚段只有一个页面
+
+TRX_RSEG_FSEG_HEADER：这个回滚段对应的10 字节大小的Segroent Headcr 结构，通过它可以找到本回滚段对应的 INODE Entry
+
+-个页号占用4 字节，对于1大小为16KB的页面来说， 这个TRX_ RSEG UNDO SLOTS 部分共存储了 1024 个 undo slot
+
+### 20.9.2 从回滚段中申请 Undo 页面链表
+
+在初始情况下，由于未向任吁事务分配任何U础页面链表，所以对于一个 Rollback Segment Header 页面面来说，它的各个undo slot 都被设置为一个特殊的值：FIL_NULL（对应的十六进制就是 0xFFFFFFFF），这表示该 undo slot 不指向任何页面
+
+开始有事多需要分配Undo 页面链表了.于是从回滚段的第一个 undo slot 开始
+
+如果是FIL NULL ，那么就在表空间中新创建一个段（Undo Log Segment），然后从段中申请个页面作为Undo 页面链表的 first undo page，最后把该 undo slot 的值设置为刚刚申请的这个页面的地址
+
+如果不是FIL NULL.说明该undo slot 已经指向了一个undo 链表. 这就需要跳到下一个undo slot，判断...
+
+如果有 1024 个 undo slot 都有用，就会报错：`Too many active concurrent transactions`
+
+当一个事务被提交，
+
+如果 undo slot 指向的undo 链表符合被重用的条件，undo slot 就处于被缓存的状态（TRX_UNDO_STATE属性），被缓存的 undo slot 会被加入到一个链表中。（insert undo cached 链表 或者 update undo cached 链表）
+
+如果不符合被重用条件
+
++ insert undo 链表，该 Undo 页面链表的属性被设置为 TRX_UNDO_TO_FREE。之后该链表对应的段会被释放，然后 undo slot 会被设置为 FIL_NULL
++ update undo 链表，该 Undo 页面链表的属性被设置为 TRX_UNDO_TO_PRUGE。undo slot 会被设置为 FIL_NULL，然后将本次事务写入的一组 undo 日志放到 History 链表中
+
+### 20.9.3 多个回滚段
+
+128个回滚段，支持同时多个事务执行
+
+对应 128个 Rollback Segment Header 页面，在系统表空间 5号页面的某个区域有 128个 8字节大小的格子
+
+8个字节由 2 部分组成
+
+4字节的Space ID，代表一个表空间ID
+
+4字节的Page number，代表一个页号
+
+8字节大小的格子相当于一个指向某个表空间中的某个页面的指针（Rollback Segment Header 页面）
+
+> 不同的回滚段可能在不同的表空间
+
+![image-20220524165938445](/Users/daydaylw3/Pictures/typora/image-20220524165938445.png)
+
+### 20.9.4 回滚段的分类
+
+0~127号回滚段
+
++ 0，33~127号属于一类；0号必须在系统表空间中（Rollback Segment Header）。33~127 可以在配置的 undo 表空间中
+
+  如果一个事务在执行过程中对普通表的记录进行了改动， 得要分配Undo 页面链衰， 就必须从这一类的段中分配相应的 undo slot
+
++ 1~32 号属于一类。必须在临时表空间中（对应数据目录中的 ibtmp1 文件）
+
+  如果一个事务在执行过程中对临时表的记录进行了改动。。。
+
+> 为啥要针对普通表和临时表来划分不同种类的回滚段呢
+
+在修改针对普通表的回滚段中的Undo 页面时，需要记录对应的redo 日志，而修改针对临时袤的回滚段中的Undo 页面时， 不需要记录对应的redo 日志.
+
+### 20.9.5 roll_pointer 的组成
+
+属性本质上就是一个指针，它指向一条undo 日志的地址.
+
+![image-20220524203451791](/Users/daydaylw3/Pictures/typora/image-20220524203451791.png)
+
++ is_insert：是否是 TRX_UNDO_INSERT 大类的 undo 日志
++ rseg id：undo 日志的回滚段编号，0~127，7比特
+
+### 20.9.6 为事务分配 Undo 页面链表的详细过程
+
+## 20.10 回滚段相关配置
+
+### 20.10.1 配置回滚段数量
+
+innodb_rollback_segments 启动选项，配置范围 1~128。选项不影响针对临时表的回滚段数量。
+
+1：只有1个针对普通表的可用回滚段，临时32个
+
+2~33：效果和1相同
+
+\> 33：针对普通表的可用回滚段数量 = -32
+
+### 20.10.2 配置 undo 表空间
+
+第33 - 127 号回滚段可以通过配置放到自定义的undo 表空间中
+
+在系统初始化(创建数据目录时）时使用
+
++ innodb_undo_directory 指定表空间所在目录。没指定默认 undo表空间所在目录为数据目录
++ innodb_undo_tablespaces 定义 undo 表空间数量，默认0
+
+> 如果在系统初始化时指定了创建undo 表空间， 那么系统表空间中的第0 号回滚段将处于不可用状态
+
+33 ~ 127 号回滚段可以平均分布到不同的 undo 表空间中
+
+设立 undo 表空间的好处是在 undo 表空间文件大到一定程度，可以自动截断（truncate）成一个小文件。系统表空间只能不断增大
+
+## 20.11 undo 日志再崩溃恢复时的作用
+
+为了保证事务的原子性，有必要在服务器重启时将这些未提交的事务回滚掉
+
+我们可以通过系统表空间中第5 号页面定 1~ 128 个回滚段的位置，在每一个回滚段的 1024 个 undo slot 中找到值不为 FIL_NULL 的 undo slot，每个 undo slot 对应一个 undo 链表。
+
+从 undo 链表第一个页面 Undo Segment Header 中找到 TRX_UNDO_STATE 属性，找到值为 TRX_UNDO_ACTIVE 的 undo 链表，
 
 ------
 
