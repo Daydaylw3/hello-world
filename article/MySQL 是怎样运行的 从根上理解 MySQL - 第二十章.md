@@ -380,9 +380,13 @@ innodb_rollback_segments 启动选项，配置范围 1~128。选项不影响针�
 
 为了保证事务的原子性，有必要在服务器重启时将这些未提交的事务回滚掉
 
-我们可以通过系统表空间中第5 号页面定 1~ 128 个回滚段的位置，在每一个回滚段的 1024 个 undo slot 中找到值不为 FIL_NULL 的 undo slot，每个 undo slot 对应一个 undo 链表。
+我们可以通过系统表空间中第5 号页面定位到 128 个回滚段的位置，在每一个回滚段的 1024 个 undo slot 中找到值不为 FIL_NULL 的 undo slot，每个 undo slot 对应一个 undo 链表。
 
-从 undo 链表第一个页面 Undo Segment Header 中找到 TRX_UNDO_STATE 属性，找到值为 TRX_UNDO_ACTIVE 的 undo 链表，
+从 undo 链表第一个页面 Undo Segment Header 中找到 TRX_UNDO_STATE 属性，找到值为 TRX_UNDO_ACTIVE 的 undo 链表（说明有一个活跃的事务再往这个 undo 链表中写入 undo 日志），然后再在 Undo Segment Header 中找到 TRX_UNDO_LAST_LOG 属性，通过该属性找到本 undo 链表最后一个 Undo Log Header 的位置（确定该事务头和尾）。
+
+从该 Undo Log Header 中找到对应事务的 id 和一些其他信息，该事务id就是未提交的事务。通过 undo 日志回滚
+
+## 20.12 总结
 
 ------
 
