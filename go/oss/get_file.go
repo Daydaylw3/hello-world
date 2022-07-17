@@ -16,13 +16,12 @@ func handleErr(err error) {
 // 使用签名URL下载文件
 // 以下代码用于下载目标存储空间 examplebucket 中 exampledir 目录下的 exampleobject.txt 到本地
 func getFileViaSecurityToken() {
-	client, err := oss.New("", "", "")
+	client, err := oss.New(endPoint, dayMini2AccessKeyID, dayMini2AccessKeySecret)
 	if err != nil {
 		handleErr(err)
 	}
-	bucketName := ""
-	objectName := ""
-	localDownloadedFilename := "/Users/daydaylw3/Downloads/exampleobject.JPG"
+	objectName := "private/privateexample.txt"
+	localDownloadedFilename := "/Users/daydaylw3/exampleobject.txt"
 	bucket, err := client.Bucket(bucketName)
 	if err != nil {
 		handleErr(err)
